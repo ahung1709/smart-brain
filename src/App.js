@@ -8,20 +8,28 @@ import Register from './components/Register/Register';
 import Logo from './components/Logo/Logo';
 import ImageLinkForm from './components/ImageLinkForm/ImageLinkForm';
 import Rank from './components/Rank/Rank';
+import Modal from './components/Modal/Modal';
+import Profile from './components/Profile/Profile';
 import './App.css';
 
 const initialState = {
   input: '',
   imageUrl: '',
-  box: {},
+  boxes: [],
+  // route: 'home',
   route: 'signin',
+  // isSignedIn: true,
   isSignedIn: false,
+  // isProfileOpen: true,
+  isProfileOpen: false,
   user: {
     id: '',
     name: '',
     email: '',
     entries: 0,
-    joined: ''
+    joined: '', 
+    pet: '', 
+    age: ''
   }
 }
 
@@ -30,6 +38,42 @@ class App extends Component {
   constructor() {
     super();
     this.state = initialState;
+  }
+
+  componentDidMount() {
+    const token = window.sessionStorage.getItem('token');
+    if (token) {
+      fetch('http://localhost:3000/signin', {
+        method: 'post', 
+        headers: {
+          'Content-Type': 'applicaiton/json', 
+          'Authorization': token
+          // 'Authorization': 'Bearer ' + token
+        }
+      })
+        .then(resp => resp.json())
+        .then(data => {
+          if (data && data.id) {
+            console.log('success we need to get user profile')
+            fetch(`http://localhost:3000/profile/${data.id}`, {
+              method: 'get', 
+              headers: {
+                'Content-Type': 'applicaiton/json', 
+                'Authorization': token
+              }      
+            })
+              .then(resp => resp.json())
+              .then(user => {
+                if (user && user.email) {
+                  console.log(user)
+                  this.loadUser(user)
+                  this.onRouteChange('home');
+                }
+              })
+          }
+        })
+        .catch(console.log)
+    }
   }
 
   loadUser = (data) => {
@@ -42,21 +86,28 @@ class App extends Component {
     }})
   }
 
-  calculateFaceLocation = (data) => {
-    const clarifaiFace = data.outputs[0].data.regions[0].region_info.bounding_box;
-    const image = document.getElementById('inputimage');
-    const width = Number(image.width);
-    const height = Number(image.height);
-    return {
-      leftCol: clarifaiFace.left_col * width,
-      topRow: clarifaiFace.top_row * height,
-      rightCol: width - (clarifaiFace.right_col * width),
-      bottomRow: height - (clarifaiFace.bottom_row * height)
+  calculateFaceLocations = (data) => {
+    if (data && data.outputs) {
+      return data.outputs[0].data.regions.map(face => {
+        const clarifaiFace = face.region_info.bounding_box;
+        const image = document.getElementById('inputimage');
+        const width = Number(image.width);
+        const height = Number(image.height);
+        return {
+          leftCol: clarifaiFace.left_col * width,
+          topRow: clarifaiFace.top_row * height,
+          rightCol: width - (clarifaiFace.right_col * width),
+          bottomRow: height - (clarifaiFace.bottom_row * height)
+        }
+      })
     }
+    return;
   }
 
-  displayFaceBox = (box) => {
-    this.setState({box: box});
+  displayFaceBoxes = (boxes) => {
+    if (boxes) {
+      this.setState({boxes: boxes});
+    }
   }
 
   onInputChange = (event) => {
@@ -67,7 +118,10 @@ class App extends Component {
     this.setState({imageUrl: this.state.input});
       fetch('http://localhost:3000/imageurl', {
         method: 'post',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json', 
+          'Authorization': window.sessionStorage.getItem('token')
+        },
         body: JSON.stringify({
           input: this.state.input
         })
@@ -77,7 +131,10 @@ class App extends Component {
         if (response) {
           fetch('http://localhost:3000/image', {
             method: 'put',
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json', 
+              'Authorization': window.sessionStorage.getItem('token')
+            },
             body: JSON.stringify({
               id: this.state.user.id
             })
@@ -89,26 +146,44 @@ class App extends Component {
             .catch(console.log)
 
         }
-        this.displayFaceBox(this.calculateFaceLocation(response))
+        console.log("response:", response)
+        this.displayFaceBoxes(this.calculateFaceLocations(response))
       })
       .catch(err => console.log(err));
   }
 
   onRouteChange = (route) => {
     if (route === 'signout') {
-      this.setState(initialState)
+      return this.setState(initialState)
     } else if (route === 'home') {
       this.setState({isSignedIn: true})
     }
     this.setState({route: route});
   }
 
+  toggleModal = () => {
+    this.setState(prevState => ({
+      ...prevState,
+      isProfileOpen: !prevState.isProfileOpen
+    }))
+  }
+
   render() {
-    const { isSignedIn, imageUrl, route, box } = this.state;
+    const { isSignedIn, imageUrl, route, boxes, isProfileOpen, user } = this.state;
     return (
       <div className="App">
         <ParticlesBg type="circle" bg={true} />
-        <Navigation isSignedIn={isSignedIn} onRouteChange={this.onRouteChange} />
+        <Navigation isSignedIn={isSignedIn} onRouteChange={this.onRouteChange} toggleModal={this.toggleModal} />
+        {isProfileOpen && 
+          <Modal>
+            <Profile 
+              isProfileOpen={isProfileOpen} 
+              toggleModal={this.toggleModal}
+              loadUser={this.loadUser}
+              user={user}
+            />
+          </Modal>
+        }
         { route === 'home'
           ? <div>
               <Logo />
@@ -120,7 +195,7 @@ class App extends Component {
                 onInputChange={this.onInputChange}
                 onButtonSubmit={this.onButtonSubmit}
               />
-              <FaceRecognition box={box} imageUrl={imageUrl} />
+              <FaceRecognition boxes={boxes} imageUrl={imageUrl} />
             </div>
           : (
              route === 'signin'
